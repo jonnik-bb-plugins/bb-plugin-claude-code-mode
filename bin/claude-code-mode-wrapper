@@ -4,6 +4,7 @@
 # these on a capable model (claude-{opus,sonnet,haiku}-5-5, claude-fable-5-2); resumes of sessions started in Code Mode stay on.
 # The suffix is always stripped before the real CLI runs. Env CLAUDE_CODE_MODE_DISABLE=1 turns both off. The mode never blocks a launch.
 # Real CLI: BB_CLAUDE_CODE_MODE_REAL_BIN, else BB_CLAUDE_CODE_EXECUTABLE (when not this script), else `claude` on PATH, else known paths.
+# Env BB_CLAUDE_CODE_MODE_THREAD=<id> (set by the plugin) records on/off in threads/<id> beside this script.
 # Log: code-mode.log beside this script; BB_CLAUDE_CODE_MODE_LOG=<path> moves it, BB_CLAUDE_CODE_MODE_LOG=off disables it.
 die() { printf 'claude-code-mode: %s\n' "$1" >&2; exit 127; }
 usable() { [[ -f $1 && -x $1 && ! $1 -ef $0 ]]; }
@@ -46,6 +47,8 @@ fi
 
 envmode=${BB_CLAUDE_CODE_MODE-}
 unset BB_CLAUDE_CODE_MODE
+tid=${BB_CLAUDE_CODE_MODE_THREAD-}
+unset BB_CLAUDE_CODE_MODE_THREAD
 
 on=0 reason=
 if [[ -n $rid ]]; then
@@ -83,6 +86,12 @@ fi
 if [[ $LOG != off ]]; then
   { printf '%s %s %s %s %s\n' "$(date -u +%FT%TZ)" "${rid:-new}" "${recv:--}" \
     "$( ((on)) && echo ON || echo OFF)" "$reason" >> "$LOG"; } 2>/dev/null || true
+fi
+# Record the decision for the thread banner; a launch without model and resume id is a probe, not a session.
+if [[ $tid =~ ^[A-Za-z0-9_-]+$ && -n $model$rid ]]; then
+  d="$(dirname "$0")/threads" t=
+  { mkdir -p "$d" && t="$d/.$tid.$$" && { ((on)) && echo on || echo off; } > "$t" && mv -f "$t" "$d/$tid"; } 2>/dev/null \
+    || { [[ -z $t ]] || rm -f "$t" 2>/dev/null; }
 fi
 # Point nested tools at the real CLI, not back at this script.
 if [[ ${BB_CLAUDE_CODE_EXECUTABLE-} -ef $0 ]]; then export BB_CLAUDE_CODE_EXECUTABLE=$REAL; fi

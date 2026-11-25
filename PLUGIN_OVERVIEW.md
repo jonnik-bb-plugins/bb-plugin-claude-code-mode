@@ -2,7 +2,8 @@
 
 - A code icon button in the New thread composer toolbar. It is a sticky
   preference for Claude Code threads that you start from the app.
-- A "Claude Code Mode" line above the composer of each thread started that way.
+- A "Claude Code Mode" line above the composer of each thread that runs in Code
+  Mode.
 - Other threads stay as they were. Agent, CLI, SDK, plugin and fork threads are
   not affected by the button.
 

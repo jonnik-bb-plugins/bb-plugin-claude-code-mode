@@ -2,6 +2,7 @@ import {
   accessSync,
   chmodSync,
   constants,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   writeFileSync,
@@ -64,7 +65,11 @@ async function setup() {
       ...overrides.context,
     });
   };
-  return { exe, env, dispatch, harness };
+  const base = (threadId: string) => ({
+    BB_CLAUDE_CODE_EXECUTABLE: exe,
+    BB_CLAUDE_CODE_MODE_THREAD: threadId,
+  });
+  return { exe, env, base, dispatch, harness };
 }
 
 describe("claude-code-mode", () => {
@@ -72,16 +77,16 @@ describe("claude-code-mode", () => {
   afterEach(() => vi.unstubAllEnvs());
 
   it("gives every command the wrapper, and the flag only to flagged threads", async () => {
-    const { exe, env, dispatch, harness } = await setup();
+    const { exe, env, base, dispatch, harness } = await setup();
     await harness.behavior.callRpc("setToggle", { on: true });
-    expect(await env("th_1")).toEqual({ BB_CLAUDE_CODE_EXECUTABLE: exe });
+    expect(await env("th_1")).toEqual(base("th_1"));
     expect(await dispatch()).toEqual({ action: "proceed" });
     // Visible as soon as the hook has answered, i.e. before the first start.
     expect(await env("th_1")).toEqual({
-      BB_CLAUDE_CODE_EXECUTABLE: exe,
+      ...base("th_1"),
       BB_CLAUDE_CODE_MODE: "1",
     });
-    expect(await env("th_2")).toEqual({ BB_CLAUDE_CODE_EXECUTABLE: exe });
+    expect(await env("th_2")).toEqual(base("th_2"));
     expect(await env(null)).toEqual({ BB_CLAUDE_CODE_EXECUTABLE: exe });
   });
 
@@ -140,14 +145,14 @@ describe("claude-code-mode", () => {
   });
 
   it("passes on the user's original executable", async () => {
-    const { exe, env } = await setup();
+    const { exe, env, base } = await setup();
     vi.stubEnv("BB_CLAUDE_CODE_EXECUTABLE", "/opt/my/claude");
     expect(await env("th_1")).toEqual({
-      BB_CLAUDE_CODE_EXECUTABLE: exe,
+      ...base("th_1"),
       BB_CLAUDE_CODE_MODE_REAL_BIN: "/opt/my/claude",
     });
     vi.stubEnv("BB_CLAUDE_CODE_EXECUTABLE", exe);
-    expect(await env("th_1")).toEqual({ BB_CLAUDE_CODE_EXECUTABLE: exe });
+    expect(await env("th_1")).toEqual(base("th_1"));
   });
 
   it("contributes nothing on another machine or without the wrapper", async () => {
@@ -155,6 +160,25 @@ describe("claude-code-mode", () => {
     expect(await env("th_1", "host_remote")).toEqual({});
     chmodSync(exe, 0o644);
     expect(await env("th_1")).toEqual({});
+  });
+
+  it("reports the mode the wrapper recorded, else the flag", async () => {
+    const { exe, dispatch, harness } = await setup();
+    const read = (threadId: string) =>
+      harness.behavior.callRpc("isCodeMode", { threadId });
+    const record = (state: string) =>
+      writeFileSync(join(dirname(exe), "threads", "th_1"), `${state}\n`);
+    expect(await read("th_1")).toEqual({ codeMode: false, recorded: false });
+    await harness.behavior.callRpc("setToggle", { on: true });
+    await dispatch();
+    expect(await read("th_1")).toEqual({ codeMode: true, recorded: false });
+    mkdirSync(join(dirname(exe), "threads"));
+    record("off"); // flagged, but the request did not take effect
+    expect(await read("th_1")).toEqual({ codeMode: false, recorded: true });
+    record("on");
+    expect(await read("th_1")).toEqual({ codeMode: true, recorded: true });
+    writeFileSync(join(dirname(exe), "threads", "th_2"), "on\n"); // unflagged
+    expect(await read("th_2")).toEqual({ codeMode: true, recorded: true });
   });
 
   it("lists the same capable models as the wrapper", () => {

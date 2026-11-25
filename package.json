@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-claude-code-mode",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Start a single bb thread in Claude Code's experimental Code Mode.",
   "license": "MIT",
   "author": "JonniK",

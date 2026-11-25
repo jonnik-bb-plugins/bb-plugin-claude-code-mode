@@ -4,7 +4,7 @@ set -u
 W="$(cd "$(dirname "$0")" && pwd)/bin/claude-code-mode-wrapper"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "$a"; done\n' > "$T/fake"; chmod +x "$T/fake"
-unset BB_CLAUDE_CODE_MODE CLAUDE_CODE_MODE_DISABLE BB_CLAUDE_CODE_EXECUTABLE CLAUDE_CONFIG_DIR
+unset BB_CLAUDE_CODE_MODE BB_CLAUDE_CODE_MODE_THREAD CLAUDE_CODE_MODE_DISABLE BB_CLAUDE_CODE_EXECUTABLE CLAUDE_CONFIG_DIR
 export BB_CLAUDE_CODE_MODE_REAL_BIN="$T/fake" BB_CLAUDE_CODE_MODE_LOG="$T/log" HOME="$T/h"
 mkdir -p "$T/h/.claude/projects/p"
 echo '{"type":"repl-mode","replMode":true,"x":1}' > "$T/h/.claude/projects/p/aaa.jsonl"
@@ -60,6 +60,30 @@ unset BB_CLAUDE_CODE_MODE
 rm "$T/log"; BB_CLAUDE_CODE_MODE_LOG=off "$W" >/dev/null; [[ ! -e $T/log && ! -e off ]] || { echo "FAIL log off"; fail=1; }
 mkdir -p "$T/cfg/projects/p"; cp "$T/h/.claude/projects/p/aaa.jsonl" "$T/cfg/projects/p/ccc.jsonl"
 CLAUDE_CONFIG_DIR="$T/cfg" chk "CLAUDE_CONFIG_DIR resume ON" 1 --model=claude-sonnet-5-5 --resume=ccc
+
+# Per-thread state, written beside the wrapper (a copy, so the repo stays clean).
+cp "$W" "$T/wrapper"
+state() { # name, want (on/off/none), thread id, args...
+  local name=$1 want=$2 id=$3; shift 3; rm -rf "$T/threads"
+  local out; out=$(BB_CLAUDE_CODE_MODE_THREAD=$id "$T/wrapper" "$@")
+  local got; got=$(cat "$T/threads/$id" 2>/dev/null || echo none)
+  if [[ $got == "$want" && -n $out && $(ls -A "$T/threads" 2>/dev/null | wc -l) -le 1 ]]; then echo "ok   $name"; else echo "FAIL $name: $got"; fail=1; fi
+}
+state "state on" on thr_1 --model=claude-sonnet-5-5-codemode
+state "state off" off thr_1 --model=claude-sonnet-5-5
+state "state resume on" on thr_1 --resume=aaa
+CLAUDE_CODE_MODE_DISABLE=1 state "state disabled off" off thr_1 --model=claude-sonnet-5-5-codemode
+state "state skips probe" none thr_1 --version
+state "state rejects path id" none ../x --model=claude-sonnet-5-5
+[[ ! -e $T/x ]] || { echo "FAIL traversal"; fail=1; }
+rm -rf "$T/threads"; "$T/wrapper" --model=claude-sonnet-5-5 >/dev/null
+[[ ! -e $T/threads ]] && echo "ok   no thread id, no state" || { echo "FAIL stateless"; fail=1; }
+: > "$T/threads"
+[[ $(BB_CLAUDE_CODE_MODE_THREAD=thr_1 "$T/wrapper" --model=x 2>&1) == --model=x ]] \
+  && echo "ok   state failure still launches" || { echo "FAIL launch blocked"; fail=1; }
+rm -f "$T/threads"
+[[ $(BB_CLAUDE_CODE_MODE_THREAD=thr_1 BB_CLAUDE_CODE_MODE_REAL_BIN=/usr/bin/env "$T/wrapper") != *BB_CLAUDE_CODE_MODE_THREAD* ]] \
+  && echo "ok   thread id not inherited" || { echo "FAIL thread id leaked"; fail=1; }
 
 # Real-binary resolution. Each fake prints its own tag.
 unset BB_CLAUDE_CODE_MODE_REAL_BIN

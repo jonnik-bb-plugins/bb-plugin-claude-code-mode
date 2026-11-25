@@ -3,7 +3,14 @@
 // stores the flag before bb starts the provider, and the env resolver passes it
 // to the bundled wrapper CLI.
 import { constants } from "node:fs";
-import { access, chmod, readFile, rename, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
@@ -41,8 +48,9 @@ export const rpcContract = defineRpcContract({
     output: z.object({ on: z.boolean() }),
   },
   isCodeMode: {
-    input: z.object({ threadId: z.string().min(1) }),
-    output: z.object({ codeMode: z.boolean() }),
+    // The id names a state file, so no path characters.
+    input: z.object({ threadId: z.string().regex(/^[A-Za-z0-9_-]+$/) }),
+    output: z.object({ codeMode: z.boolean(), recorded: z.boolean() }),
   },
 });
 
@@ -60,7 +68,19 @@ export default async function plugin(bb: BbPluginApi) {
     return null;
   });
 
-  const isCodeMode = async (threadId: string) =>
+  // Written by the wrapper at each session launch: the mode actually used.
+  const statePath = (threadId: string) =>
+    wrapperPath === null
+      ? null
+      : join(dirname(wrapperPath), "threads", threadId);
+  const readState = async (threadId: string) => {
+    const path = statePath(threadId);
+    if (path === null) return null;
+    const state = await readFile(path, "utf8").catch(() => "");
+    return state.trim() === "on" ? true : state.trim() === "off" ? false : null;
+  };
+
+  const isFlagged = async (threadId: string) =>
     (await bb.storage.kv.get<boolean>(key(threadId))) === true;
 
   const isToggleOn = async () =>
@@ -123,7 +143,14 @@ export default async function plugin(bb: BbPluginApi) {
           reason: "The Claude Code executable configured before this plugin",
         });
       }
-      if (threadId !== null && (await isCodeMode(threadId))) {
+      if (threadId !== null) {
+        env.push({
+          name: "BB_CLAUDE_CODE_MODE_THREAD",
+          value: threadId,
+          reason: "Record whether this thread runs in Code Mode",
+        });
+      }
+      if (threadId !== null && (await isFlagged(threadId))) {
         env.push({
           name: "BB_CLAUDE_CODE_MODE",
           value: "1",
@@ -141,12 +168,18 @@ export default async function plugin(bb: BbPluginApi) {
       bb.realtime.publish(TOGGLED, { on });
       return { on };
     },
-    isCodeMode: async ({ threadId }) => ({
-      codeMode: await isCodeMode(threadId),
-    }),
+    isCodeMode: async ({ threadId }) => {
+      const state = await readState(threadId);
+      return {
+        codeMode: state ?? (await isFlagged(threadId)),
+        recorded: state !== null,
+      };
+    },
   });
 
   bb.events.on("thread.deleted", async ({ thread }) => {
     await bb.storage.kv.delete(key(thread.id));
+    const path = statePath(thread.id);
+    if (path !== null) await rm(path, { force: true });
   });
 }

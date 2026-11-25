@@ -11,8 +11,9 @@ description: Explains the Claude Code Mode plugin - how a bb thread is started i
   plugin and fork threads are never affected by the toggle. The button shows
   only for the Claude Code provider (disabled for older models); compact
   layouts hide it.
-- The mode is fixed at the first turn. A thread flagged this way shows "Claude
-  Code Mode" above its composer; it cannot be switched.
+- The mode is fixed at the first turn and cannot be switched. A thread running
+  in Code Mode shows "Claude Code Mode" above its composer; the wrapper records
+  each launch in `threads/<thread id>` (`on`/`off`) beside itself.
 - Check: `<bb data dir>/plugins/claude-code-mode/code-mode.log` (default data
   dir `~/.bb`) has one ON/OFF line per launch. A Code Mode transcript has a
   `"type":"repl-mode"` line.

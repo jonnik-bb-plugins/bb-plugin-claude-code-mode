@@ -54,24 +54,46 @@ function CodeModeToggle() {
   );
 }
 
-/** Read-only marker above the composer of a thread started in Code Mode. */
+/** Read-only marker above the composer of a thread running in Code Mode. */
 function CodeModeBanner() {
   const { scope } = useComposer();
   const threadId = scope.kind === "thread" ? scope.threadId : null;
   const rpc = useRpc<typeof rpcContract>();
   const [shownFor, setShownFor] = useState<string | null>(null);
-  const refetch = useCallback(() => {
+  const [changes, setChanges] = useState(0);
+  // The wrapper records the actual mode only when the session launches, and
+  // it cannot publish events: poll (bounded) until a state is recorded.
+  useEffect(() => {
     if (threadId === null) return;
-    rpc.call("isCodeMode", { threadId }).then(
-      ({ codeMode }) => setShownFor(codeMode ? threadId : null),
-      () => setShownFor(null),
-    );
-  }, [rpc, threadId]);
-  useEffect(refetch, [refetch]);
-  useRealtime("code-mode-changed", refetch);
+    let stale = false;
+    let polls = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = () => {
+      rpc.call("isCodeMode", { threadId }).then(
+        ({ codeMode, recorded }) => {
+          if (stale) return;
+          setShownFor(codeMode ? threadId : null);
+          if (!recorded && polls++ < 60) timer = setTimeout(load, 2000);
+        },
+        () => !stale && setShownFor(null),
+      );
+    };
+    load();
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [rpc, threadId, changes]);
+  useRealtime("code-mode-changed", () => setChanges((n) => n + 1));
   if (threadId === null || shownFor !== threadId) return null;
   return (
-    <div className="px-1 text-xs text-muted-foreground">Claude Code Mode</div>
+    <div
+      title="This thread runs in Claude Code's experimental Code Mode"
+      className="inline-flex w-fit items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary"
+    >
+      <Icon name="Code" className="size-3" />
+      Claude Code Mode
+    </div>
   );
 }
 

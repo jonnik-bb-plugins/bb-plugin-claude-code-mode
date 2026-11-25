@@ -68,6 +68,11 @@ suffix before Claude Code runs.
 
 ## Log and switches
 
+The thread banner shows the mode of the latest launch: for each thread the
+wrapper records `on` or `off` in `threads/<thread id>` beside its copy, so a
+`-codemode` or resumed thread shows it too, and a disabled opt-in does not.
+Before the first launch, the banner follows the toolbar opt-in.
+
 Each launch adds one line (time, session, model, ON or OFF, reason) to
 `code-mode.log` beside the wrapper copy. No prompt text is logged.
 
