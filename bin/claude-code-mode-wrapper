@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Claude Code launcher used by the bb Claude Code Mode plugin. Code Mode is OPT-IN per launch via env BB_CLAUDE_CODE_MODE=1 (set by the
+# plugin; never passed on to the CLI) or a model-id suffix (--model claude-opus-5-5-codemode). New sessions get Code Mode only with one of
+# these on a capable model (claude-{opus,sonnet,haiku}-5-5, claude-fable-5-2); resumes of sessions started in Code Mode stay on.
+# The suffix is always stripped before the real CLI runs. Env CLAUDE_CODE_MODE_DISABLE=1 turns both off. The mode never blocks a launch.
+# Real CLI: BB_CLAUDE_CODE_MODE_REAL_BIN, else BB_CLAUDE_CODE_EXECUTABLE (when not this script), else `claude` on PATH, else known paths.
+# Log: code-mode.log beside this script; BB_CLAUDE_CODE_MODE_LOG=<path> moves it, BB_CLAUDE_CODE_MODE_LOG=off disables it.
+die() { printf 'claude-code-mode: %s\n' "$1" >&2; exit 127; }
+usable() { [[ -f $1 && -x $1 && ! $1 -ef $0 ]]; }
+REAL=
+for c in "${BB_CLAUDE_CODE_MODE_REAL_BIN-}" "${BB_CLAUDE_CODE_EXECUTABLE-}"; do
+  [[ -n $c && ! $c -ef $0 ]] || continue
+  [[ $c == */* ]] || c=$(type -P "$c")
+  usable "$c" || die "the configured Claude Code executable is not runnable: ${c:-not found on PATH}"
+  REAL=$c; break
+done
+if [[ -z $REAL ]]; then
+  while IFS= read -r c; do
+    usable "$c" && { REAL=$c; break; }
+  done < <(type -aP claude; printf '%s\n' "$HOME/.local/bin/claude" "$HOME/.claude/local/claude" /opt/homebrew/bin/claude /usr/local/bin/claude)
+fi
+[[ -n $REAL ]] || die "Claude Code CLI not found; install it or set BB_CLAUDE_CODE_EXECUTABLE to its path"
+unset BB_CLAUDE_CODE_MODE_REAL_BIN
+H="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+LOG="${BB_CLAUDE_CODE_MODE_LOG:-$(dirname "$0")/code-mode.log}"
+args=("$@")
+model= rid= sidx=-1 sval= midx=-1
+n=${#args[@]}
+for ((i=0; i<n; i++)); do
+  a=${args[i]}; nx=${args[i+1]-}
+  case $a in
+    --model=*) model=${a#--model=}; midx=$i ;;
+    --model) model=$nx; midx=$((i+1)) ;;
+    --resume=*) rid=${a#--resume=} ;;
+    --resume|-r) rid=$nx ;;
+    --settings=*) sidx=$i; sval=${a#--settings=} ;;
+    --settings) sidx=$((i+1)); sval=$nx ;;
+  esac
+done
+
+recv=$model suffix=0
+if [[ $model == *-codemode ]]; then
+  suffix=1; model=${model%-codemode}
+  if [[ ${args[midx]} == --model=* ]]; then args[midx]="--model=$model"; else args[midx]=$model; fi
+fi
+
+envmode=${BB_CLAUDE_CODE_MODE-}
+unset BB_CLAUDE_CODE_MODE
+
+on=0 reason=
+if [[ -n $rid ]]; then
+  reason="resume without repl-mode marker"
+  for f in "$H"/projects/*/"$rid".jsonl; do
+    [[ -f $f ]] && grep -Fq -m1 '"type":"repl-mode","replMode":true' "$f" 2>/dev/null \
+      && { on=1; reason="resume of Code Mode session"; break; }
+  done
+elif ((!suffix)) && [[ $envmode != 1 ]]; then reason="no -codemode suffix"
+elif [[ $model != claude-opus-5-5* && $model != claude-sonnet-5-5* && $model != claude-haiku-5-5* && $model != claude-fable-5-2* ]]; then reason="model not Code Mode capable"
+elif [[ ${CLAUDE_CODE_MODE_DISABLE-} == 1 ]]; then reason="env CLAUDE_CODE_MODE_DISABLE=1"
+elif ((suffix)); then on=1; reason="opt-in suffix"
+else on=1; reason="env BB_CLAUDE_CODE_MODE=1"
+fi
+
+if ((on)); then
+  extra='{"env":{"CLAUDE_CODE_EXPERIMENTAL_CODE_MODE":"1"}}'
+  merged=
+  if ((sidx >= 0)); then
+    merged=$(python3 -I -c '
+import json,sys
+d=json.loads(sys.argv[1])
+assert isinstance(d,dict)
+e=d.setdefault("env",{}); assert isinstance(e,dict)
+e["CLAUDE_CODE_EXPERIMENTAL_CODE_MODE"]="1"
+print(json.dumps(d,separators=(",",":")))' "$sval" 2>/dev/null)
+  fi
+  if [[ -n $merged ]]; then
+    if [[ ${args[sidx]} == --settings=* ]]; then args[sidx]="--settings=$merged"; else args[sidx]=$merged; fi
+  else
+    args+=(--settings "$extra")
+  fi
+fi
+
+if [[ $LOG != off ]]; then
+  { printf '%s %s %s %s %s\n' "$(date -u +%FT%TZ)" "${rid:-new}" "${recv:--}" \
+    "$( ((on)) && echo ON || echo OFF)" "$reason" >> "$LOG"; } 2>/dev/null || true
+fi
+# Point nested tools at the real CLI, not back at this script.
+if [[ ${BB_CLAUDE_CODE_EXECUTABLE-} -ef $0 ]]; then export BB_CLAUDE_CODE_EXECUTABLE=$REAL; fi
+exec "$REAL" "${args[@]}"
