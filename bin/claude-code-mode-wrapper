@@ -2,7 +2,7 @@
 # Claude Code launcher used by the bb Claude Code Mode plugin. Code Mode is OPT-IN per launch via env BB_CLAUDE_CODE_MODE=1 (set by the
 # plugin; never passed on to the CLI) or a model-id suffix (--model claude-opus-5-5-codemode). New sessions get Code Mode only with one of
 # these on a capable model (claude-{opus,sonnet,haiku}-5-5, claude-fable-5-2); resumes of sessions started in Code Mode stay on.
-# The suffix is always stripped before the real CLI runs. Env CLAUDE_CODE_MODE_DISABLE=1 turns both off. The mode never blocks a launch.
+# The suffix is always stripped before the real CLI runs. Env CLAUDE_CODE_MODE_DISABLE=1 blocks new sessions only; resumes stay on. The mode never blocks a launch.
 # Real CLI: BB_CLAUDE_CODE_MODE_REAL_BIN, else BB_CLAUDE_CODE_EXECUTABLE (when not this script), else `claude` on PATH, else known paths.
 # Env BB_CLAUDE_CODE_MODE_THREAD=<id> (set by the plugin) records on/off in threads/<id> beside this script.
 # Log: code-mode.log beside this script; BB_CLAUDE_CODE_MODE_LOG=<path> moves it, BB_CLAUDE_CODE_MODE_LOG=off disables it.
