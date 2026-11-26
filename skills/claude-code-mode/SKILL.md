@@ -5,6 +5,13 @@ description: Explains the Claude Code Mode plugin - how a bb thread is started i
 
 # Claude Code Mode
 
+- Agents and scripts: `bb claude-code-mode spawn --model claude-sonnet-5-5
+  --prompt-file brief.md [--parent-self] [--title ...]` (or `--prompt "..."`
+  for a short message; no stdin `-`) starts a Code Mode thread and prints its
+  id (`bb claude-code-mode spawn --help` lists all options; not
+  `bb thread spawn`). Use the plain model id. The `-codemode` model suffix is
+  deprecated: the app composer does not know it and moves the next message to
+  the project's default model.
 - Toggle: the code icon button in the New thread composer toolbar is a sticky
   preference. While on, a Claude Code 5.5 or Fable 5.2 thread whose first
   message a person sends from the app starts in Code Mode. Agent, CLI, SDK,

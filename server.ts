@@ -1,7 +1,7 @@
 // Claude Code Mode per thread. The dispatch hook flags a thread when its first
-// message is human-typed in the app and the toolbar toggle is on; it
-// stores the flag before bb starts the provider, and the env resolver passes it
-// to the bundled wrapper CLI.
+// message is human-typed in the app with the toolbar toggle on, or when this
+// plugin's CLI spawned it; it stores the flag before bb starts the provider,
+// and the env resolver passes it to the bundled wrapper CLI.
 import { constants } from "node:fs";
 import {
   access,
@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { PROVIDER_ID, supportsCodeMode } from "./lib/code-mode";
+import { registerSpawnCommand } from "./lib/spawn";
 
 export const WRAPPER_NAME = "claude-code-mode-wrapper";
 // Path installs load server.ts from the root; git installs load dist/server.js.
@@ -93,22 +94,25 @@ export default async function plugin(bb: BbPluginApi) {
   };
 
   bb.experimental_hooks.on("message.dispatch", async (ctx) => {
-    // The sticky toggle applies only to a first message a human typed in the
-    // app; agent, CLI, SDK, plugin spawns and forks are never affected.
+    // Our `spawn` command always opts in. The sticky toggle applies only to a
+    // first message a human typed in the app; other spawns and forks never.
     if (
       ctx.thread.status === "pending" &&
       ctx.thread.originKind !== "fork" &&
       ctx.attempt === "start-turn" &&
-      ctx.origin === "app" &&
-      ctx.initiator === "user" &&
-      ctx.senderThreadId === null &&
       supportsCodeMode(ctx.thread.providerId, ctx.requestedExecution.model) &&
-      (await isToggleOn())
+      ((ctx.origin === "plugin" && ctx.originPluginId === bb.pluginId) ||
+        (ctx.origin === "app" &&
+          ctx.initiator === "user" &&
+          ctx.senderThreadId === null &&
+          (await isToggleOn())))
     ) {
       await flag(ctx.thread.id);
     }
     return { action: "proceed" };
   });
+
+  registerSpawnCommand(bb);
 
   bb.providers.experimental_contributeEnv(
     PROVIDER_ID,

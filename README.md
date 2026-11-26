@@ -20,8 +20,25 @@ Anthropic.
 4. Send the first message. The thread shows "Claude Code Mode" above its
    composer.
 
-Only a first message that a person sends from the app is affected. Threads
-started by agents, the CLI, the SDK, plugins or forks are not.
+The button affects only a first message that a person sends from the app.
+Threads started by agents, the CLI, the SDK, other plugins or forks are not.
+
+## From the CLI or an agent
+
+```sh
+bb claude-code-mode spawn --model claude-sonnet-5-5 --prompt-file brief.md --parent-self
+```
+
+It starts a Claude Code thread in Code Mode with a plain model id, whatever the
+button says, and prints the thread id. `--model` and exactly one of
+`--prompt-file <path>` or `--prompt <text>` are required. The file is read on the
+machine of the calling thread (outside a thread, the bb server's), must be
+non-empty UTF-8 of at most 256 KiB, and cannot be stdin (`-`). Other options:
+`--project` (default: the current thread's), `--parent-self` or `--parent-thread`, `--title`,
+`--reasoning-level`, `--permission-mode`, `--environment` or
+`--new-environment personal|worktree` (with `--base-branch`), and `--json`.
+Without an environment option bb picks the project's default.
+`bb thread spawn` itself does not start Code Mode.
 
 ## Requirements
 
@@ -51,8 +68,9 @@ started by agents, the CLI, the SDK, plugins or forks are not.
 On startup the plugin copies `bin/claude-code-mode-wrapper` into its data
 directory (`<bb data dir>/plugins/claude-code-mode/`) and sets
 `BB_CLAUDE_CODE_EXECUTABLE` to that copy. A `message.dispatch` hook stores the
-ids of opted-in threads, and the environment resolver adds
-`BB_CLAUDE_CODE_MODE=1` for them. The wrapper then adds
+ids of opted-in threads (the button, or this plugin as the spawn origin), and
+the environment resolver adds `BB_CLAUDE_CODE_MODE=1` for them. The wrapper
+then adds
 `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1` through `--settings` and runs the real
 CLI. Resumes keep Code Mode only when the session transcript records it. The
 variable `BB_CLAUDE_CODE_MODE` is not passed on to Claude Code.
@@ -62,9 +80,11 @@ plugin, else `claude` on `PATH`, else `~/.local/bin/claude`,
 `~/.claude/local/claude`, `/opt/homebrew/bin/claude` or
 `/usr/local/bin/claude`.
 
-The wrapper also accepts a `-codemode` suffix on the model id (for example
-`claude-sonnet-5-5-codemode`) as an opt-in for scripted launches. It strips the
-suffix before Claude Code runs.
+Deprecated: the wrapper also accepts a `-codemode` suffix on the model id (for
+example `claude-sonnet-5-5-codemode`) and strips it before Claude Code runs. Do
+not use it for threads you continue in the app: the composer does not know that
+id, falls back to the project's default model, and the next message sent from
+the app runs on it. Use `bb claude-code-mode spawn`.
 
 ## Log and switches
 
